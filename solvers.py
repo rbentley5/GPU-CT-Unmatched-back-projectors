@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg as la
 from trips.utilities.reg_param.gcv import *
-#from trips.utilities.reg_param.discrepancy_principle import*
+from trips.utilities.reg_param.l_curve import l_curve
 from pylops import Identity
 import time
 import GPUtil
@@ -73,9 +73,10 @@ def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 R_A = np.diag(R_A)
                 R_L = Identity(H.shape[1])
                 lambdah = generalized_crossvalidation(Q_A, R_A, R_L, (beta * e), **kwargs)
+
             elif regparam == 'lcurve':
                 lambdah = lcurve(H, (e *beta))
-            #elif regparam == 'ncp':
+            # elif regparam == 'ncp':
                  
             #lambdah_values[k-1] = lambdah  # Keep track of all computed values
             y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
@@ -207,9 +208,8 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 R_A = np.diag(R_A)
                 R_L = Identity(H.shape[1])
                 lambdah = generalized_crossvalidation(Q_A, R_A, R_L, (beta * e), **kwargs)
-            elif regparam == 'dp':
+            elif regparam == 'lcurve':
                 lambdah = lcurve(H, (e *beta))
-            #elif regparam == 'ncp':
                  
             #lambdah_values[k-1] = lambdah  # Keep track of all computed values
             y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
@@ -237,7 +237,6 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 if l == 0 and k == 1:
                     Nk_old = Nk
                 else:
-                    #print('different: ',(Nk_old - Nk))
                     if (Nk_old - Nk) < 0:
                         X[:,l*p+1:l*p+k+1] = Xp[:,:k]
                         X = X[:,:l*p + k+1]
