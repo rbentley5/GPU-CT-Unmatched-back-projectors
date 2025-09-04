@@ -6,6 +6,7 @@ from pylops import Identity
 import time
 import GPUtil
 from utils import *
+import matplotlib.pyplot as plt
 
 def hybrid_BA_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve', stop_rule = 'no', tau = 1.02, x0 = 0, **kwargs):
     start_time = time.time()
@@ -161,15 +162,15 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                     Please supply a value of delta based on the estimated noise level of the problem, or choose the regularization parameter according to gcv or a different stopping criterion.""")
 
     print("\nHybrid-AB-GMRES is running")
+    lambdah_values = np.zeros(iter)
 
     # Check if GMRES should be restarted
     if p == 0:
         p = iter
 
     # Check if a starting guess was provided
-    if ~isinstance(x0, np.ndarray):
-        x0 = np.zeros((n,)).astype("float32")
-    
+    if not isinstance(x0, np.ndarray):
+        x0 = np.zeros((n,), dtype=np.float32)  
     # Make sure p is a divisor of iter else change iter
     L = np.floor(iter/p).astype(int)
     if np.mod(iter,p) != 0:
@@ -181,11 +182,13 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     R = np.zeros((m,iter), dtype='float32')
 
     r0 = b - A @ x0
+    r0 = r0.astype('float32')
+
     for l in range(0,L):
         beta   = np.linalg.norm(r0) 
 
         W = np.zeros((m,p+1), dtype='float32')    
-        W[:,0] = r0/beta # Initialization of the first Krylov subspace vector
+        W[:,0] = r0/beta.astype('float32') # Initialization of the first Krylov subspace vector
         
         # Construct the next Krylov subspace vector and solve the least squares problem
         for k in range(1,p+1):
@@ -198,39 +201,93 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
                 H[:k,:k-1] = h_old
 
             q = A @ (B @ W[:,k-1])
+            q= q.astype('float32')
+
+
             e = np.zeros((k+1,), dtype='float32')
             e[0] = 1
-
+            bhat = (e *beta)
             # Schmidt orthogonalizing the Krylov subspace vector (modified Gram-Schmidt)
             for i in range(1,k+1):
-                H[i-1,k-1] = q.reshape(m,1).T @ W[:,i-1].reshape(m,1)
+                H[i-1,k-1] = float(np.dot(q, W[:, i-1]))
                 q = q - H[i-1,k-1]*W[:,i-1] 
-            H[k,k-1] = np.linalg.norm(q)
-            W[:,k] = q/H[k,k-1] 
-            
-            if k == 1:
-                lambdah = 0
+            H[k,k-1] = np.linalg.norm(q).astype('float32')
+            W[:,k] = (q/H[k,k-1]).astype('float32')
+            U, s, Vt = np.linalg.svd(H)
+            cond_number = s[0] / s[-1]   # ratio of largest to smallest singular value
+            # print("Condition number:", cond_number)
+
+            if k == 1 or cond_number > 1e3:
+                lambdah = 0.0
             elif regparam == 'gcv':
                 Q_A, R_A, _ = la.svd(H, full_matrices=False)
                 R_A = np.diag(R_A)
                 R_L = Identity(H.shape[1])
                 lambdah = generalized_crossvalidation(Q_A, R_A, R_L, (beta * e), **kwargs)
             elif regparam == 'lcurve_1':
+                
+                if k == -1:
+                    U, s, Vt = np.linalg.svd(H)
+                    cond_number = s[0] / s[-1]   # ratio of largest to smallest singular value
+                    print("Condition number:", cond_number)
+                    lambdas = np.logspace(-12, 4, 400)
+
+                    res_norms = []
+                    sol_norms = []
+
+                    for lam in lambdas:
+                        y = np.linalg.lstsq(np.vstack((H, np.sqrt(lam)*np.identity(H.shape[1], dtype = 'float32'))),
+                                np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
+
+                        residual = H @ y - (e *beta)
+                        res_norms.append(np.linalg.norm(residual))
+                        sol_norms.append(np.linalg.norm(y))
+                    
+                    plt.figure(figsize=(6,6))
+                    plt.loglog(res_norms, sol_norms, '-o', markersize=3)
+                    plt.xlabel(r"$\|Ax - b\|_2$")
+                    plt.ylabel(r"$\|x\|_2$")
+                    plt.title("L-curve for Tikhonov Regularization")
+                    plt.grid(True, which="both")
+                    plt.show()
+
                 lambdah = lcurve(H, (e *beta))
 
             elif regparam == 'lcurve_2':
-                bhat = (e *beta)
                 Q_A, R_A, _ = la.svd(H, full_matrices=False)
                 R_A = np.diag(R_A)
                 R_L = Identity(H.shape[1]).todense()
                 lambdah = l_curve(R_A, R_L, Q_A.T@bhat.reshape((-1,1)))
                  
-            #lambdah_values[k-1] = lambdah  # Keep track of all computed values
+            lambdah_values[k-1] = lambdah  # Keep track of all computed values
+            # y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
+            #                     np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
+            # HtH = (H.T @ H).astype('float32')
+            # rhs = (H.T @ bhat).astype('float32')
+            # if lambdah == 0.0:
+            #     # plain normal eqn solve (H^T H should be SPD if H full rank)
+            #     # use cho_factor if SPD, else fallback to solve
+            #     try:
+            #         c, lower = la.cho_factor(HtH)
+            #         y = la.cho_solve((c, lower), rhs)
+            #     except Exception:
+            #         # fallback to least squares
+            #         y, *_ = np.linalg.lstsq(H, bhat.reshape(-1,1), rcond=None)
+            #         y = y.reshape(-1)
+            # else:
+            #     # add lambda to diagonal
+            #     HtH_reg = HtH + (lambdah * np.eye(HtH.shape[0], dtype='float32'))
+            #     # factor & solve
+            #     c, lower = la.cho_factor(HtH_reg)
+            #     y = la.cho_solve((c, lower), rhs)
+
+            # # ensure y is 1d
+            # y = np.asarray(y).reshape(-1).astype('float32')
             y = np.linalg.lstsq(np.vstack((H, np.sqrt(lambdah)*np.identity(H.shape[1], dtype = 'float32'))),
-                                np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
+                    np.vstack(( (beta * e).reshape(-1, 1), np.zeros((H.shape[1], 1), dtype = 'float32') )), rcond=None)[0]
 
             # The solution x_k and its residual
-            Xp[:,k-1] = x0 + (B @ (W[:,:k] @ np.float32(y))).reshape(-1)
+            Xp[:,k-1] = x0 + (B @ (W[:,:k] @ y)).reshape(-1)
             R[:,k-1] = b - A @ Xp[:,k-1]
             h_old = H
         
@@ -287,7 +344,7 @@ def hybrid_AB_GMRES (A, B, b, iter, m, n, num_angles, p = 0, regparam = 'lcurve'
     print(f"Hybrid AB-GMRES execution time: {elapsed_time:.4f} seconds")
     GPUtil.showUtilization(all =True)
 
-    return X, R
+    return X, R, lambdah_values
 def AB_lsqr(A, B, b, iter, m, n, num_angles, stop_rule = 'no', tau = 1.02, **kwargs) :
     start_time = time.time()
     delta = kwargs['delta'] if ('delta' in kwargs) else None

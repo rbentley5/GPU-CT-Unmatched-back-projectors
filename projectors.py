@@ -61,3 +61,58 @@ class bp_astra:
 
     def __matmul__(self,b):
         return self.apply_B(b)
+
+
+
+# import astra
+# import numpy as np
+
+# class fp_astra:
+#     def __init__(self, ct):
+#         self.num_pixels = ct.num_pixels       # <<< store it
+#         self.vol_geom = ct.vol_geom
+#         self.proj_geom = ct.proj_geom
+#         self.proj_id = ct.proj_id
+#         self.GPU = ct.GPU
+
+#         # persistent ASTRA objects
+#         self.volume_id = astra.data2d.create('-vol', self.vol_geom)
+#         self.sinogram_id = astra.data2d.create('-sino', self.proj_geom)
+#         cfg = astra.creators.astra_dict('FP_CUDA' if self.GPU else 'FP')
+#         cfg['ProjectorId'] = self.proj_id
+#         cfg['VolumeDataId'] = self.volume_id
+#         cfg['ProjectionDataId'] = self.sinogram_id
+#         self.alg_id = astra.algorithm.create(cfg)
+
+#     def apply_A(self, x):
+#         astra.data2d.store(self.volume_id, x.reshape(self.num_pixels, self.num_pixels))
+#         astra.algorithm.run(self.alg_id)
+#         return astra.data2d.get(self.sinogram_id).ravel()
+#     def __matmul__(self, x):
+#         return self.apply_A(x)
+
+# class bp_astra:
+#     def __init__(self, ct):
+#         self.num_dets = ct.num_dets
+#         self.num_angles = ct.num_angles
+#         self.vol_geom = ct.vol_geom
+#         self.proj_geom = ct.proj_geom
+#         self.proj_id = ct.proj_id
+#         self.GPU = ct.GPU
+
+#         self.sinogram_id = astra.data2d.create('-sino', self.proj_geom)
+#         self.recon_id = astra.data2d.create('-vol', self.vol_geom)
+#         cfg = astra.creators.astra_dict('BP_CUDA' if self.GPU else 'BP')
+#         cfg['ProjectorId'] = self.proj_id
+#         cfg['ProjectionDataId'] = self.sinogram_id
+#         cfg['ReconstructionDataId'] = self.recon_id
+#         self.alg_id = astra.algorithm.create(cfg)
+
+#     def apply_B(self, b):
+#         b = np.asarray(b).ravel()
+#         astra.data2d.store(self.sinogram_id, b.reshape(self.num_angles, self.num_dets))
+#         astra.algorithm.run(self.alg_id)
+#         return astra.data2d.get(self.recon_id).ravel()
+
+#     def __matmul__(self, b):
+#         return self.apply_B(b)
